@@ -91,8 +91,27 @@ def create_entry(module: str, payload: EntryPayload) -> ActionResult:
     return ActionResult(ok=True, message=f"{service.ENTITY}已登记", entry=entry)
 
 
-@router.post("/{module}/{entry_id}/actions", response_model=ActionResult)
-def run_action(module: str, entry_id: int, payload: ActionPayload) -> ActionResult:
+CUSTOM_SURROGATE_ACTIONS = {
+    "新增分段代办授权", "分段代办授权", "委托分段", "授权分段", "新增授权",
+    "撤销代办", "取消代办", "撤销授权", "取消授权",
+    "保存草稿", "暂存填写", "保存未完成表单",
+    "确认分段", "填写并确认分段", "确认号码分配", "确认分配", "提交分配",
+}
+
+
+@router.post("/{module}/{entry_id}/actions", response_model=None)
+def run_action(module: str, entry_id: int, payload: ActionPayload):
     service = require_service(module)
-    entry, message = service.run_action(entry_id, payload.action.strip())
+    action = payload.action.strip()
+
+    if module == "surrogate_key" and action in CUSTOM_SURROGATE_ACTIONS:
+        entry, message, _error_status = service.handle_custom_action(  # type: ignore[attr-defined]
+            entry_id, action, payload.model_dump(),
+        )
+        # 统一资源动作沿用本仓库契约：业务拒绝/冲突也是 HTTP 200 + ok=false，
+        # 具体拒绝原因放在 message/entry 中。语义化 REST 路径则返回 403/409。
+        return ActionResult(ok=_error_status is None, message=message,
+                            entry=entry if isinstance(entry, dict) else None)
+
+    entry, message = service.run_action(entry_id, action)
     return ActionResult(ok=entry is not None, message=message, entry=entry)

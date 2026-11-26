@@ -59,3 +59,116 @@ export async function loadOverview(): Promise<OverviewResult> {
   if (!response.ok) throw new Error('运营概览读取失败')
   return await response.json()
 }
+
+export class DelegationApiError extends Error {
+  status: number
+  data: Record<string, unknown>
+
+  constructor(message: string, status: number, data: Record<string, unknown>) {
+    super(message)
+    this.name = 'DelegationApiError'
+    this.status = status
+    this.data = data
+  }
+}
+
+async function delegationRequest<T = Record<string, unknown>>(
+  path: string,
+  operator: string,
+  options: RequestInit = {},
+): Promise<T> {
+  const response = await request(path, {
+    ...options,
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Operator': operator,
+      ...(options.headers ?? {}),
+    },
+  })
+  const data = (await response.json().catch(() => ({}))) as Record<string, unknown>
+  if (!response.ok || data.ok === false) {
+    throw new DelegationApiError(
+      String(data.message ?? `接口返回 ${response.status}`),
+      response.status,
+      data,
+    )
+  }
+  return data as T
+}
+
+export const delegationApi = {
+  list(operator: string) {
+    return delegationRequest<{ items: any[]; total: number }>(
+      `/api/surrogate_key/delegations?operator=${encodeURIComponent(operator)}`,
+      operator,
+    )
+  },
+  create(operator: string, payload: Record<string, unknown>) {
+    return delegationRequest('/api/surrogate_key/delegations', operator, {
+      method: 'POST',
+      body: JSON.stringify({ ...payload, operator }),
+    })
+  },
+  revoke(operator: string, id: number | string, version?: number) {
+    return delegationRequest(`/api/surrogate_key/delegations/${id}/revoke`, operator, {
+      method: 'POST',
+      body: JSON.stringify({ operator, version }),
+    })
+  },
+  saveDraft(operator: string, id: number | string, payload: Record<string, unknown>) {
+    return delegationRequest(`/api/surrogate_key/delegations/${id}/draft`, operator, {
+      method: 'POST',
+      body: JSON.stringify({ ...payload, operator }),
+    })
+  },
+  getDraft(operator: string, id: number | string, number: number | string) {
+    return delegationRequest<{ draft: any }>(
+      `/api/surrogate_key/delegations/${id}/draft/${number}?operator=${encodeURIComponent(operator)}`,
+      operator,
+    )
+  },
+  confirm(operator: string, id: number | string, payload: Record<string, unknown>) {
+    return delegationRequest(`/api/surrogate_key/delegations/${id}/confirm`, operator, {
+      method: 'POST',
+      body: JSON.stringify({ ...payload, operator }),
+    })
+  },
+  todos(operator: string) {
+    return delegationRequest<{ items: any[]; total: number }>(
+      `/api/surrogate_key/todos?operator=${encodeURIComponent(operator)}`,
+      operator,
+    )
+  },
+  usage(operator: string, dimension?: string) {
+    const query = new URLSearchParams({ operator })
+    if (dimension) query.set('dimension', dimension)
+    const suffix = query.toString() ? `?${query.toString()}` : ''
+    return delegationRequest<{ items: any[]; total: number }>(
+      `/api/surrogate_key/usage${suffix}`,
+      operator,
+    )
+  },
+  inspect(operator: string, dimension: string, number: number | string, delegationId?: number | string) {
+    const query = new URLSearchParams({ dimension, number: String(number), operator })
+    if (delegationId) query.set('delegation_id', String(delegationId))
+    return delegationRequest(`/api/surrogate_key/numbers/${number}?${query.toString()}`, operator)
+  },
+  crossAttempt(operator: string, id: number | string, payload: Record<string, unknown>) {
+    return delegationRequest(`/api/surrogate_key/delegations/${id}/confirm`, operator, {
+      method: 'POST',
+      body: JSON.stringify({ ...payload, operator }),
+    })
+  },
+  setupScenario(operator: string) {
+    return delegationRequest('/api/surrogate_key/scenarios/delegation-conflict', operator, {
+      method: 'POST',
+      body: JSON.stringify({ operator }),
+    })
+  },
+  race(operator: string, id: number | string) {
+    return delegationRequest(`/api/surrogate_key/delegations/${id}/race-conflict`, operator, {
+      method: 'POST',
+      body: JSON.stringify({ operator, settle: true }),
+    })
+  },
+}

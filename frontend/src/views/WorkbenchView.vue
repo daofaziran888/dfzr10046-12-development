@@ -15,6 +15,8 @@
       </div>
     </header>
 
+    <SegmentDelegationPanel v-if="meta.key === 'surrogate_key'" @changed="reload" />
+
     <div class="stat-row">
       <article v-for="item in stats" :key="item.label" class="stat-card">
         <span class="stat-label">{{ item.label }}</span>
@@ -104,6 +106,7 @@ import {
   runAction as applyAction,
 } from '@/api/backend-service'
 import type { EntryRow } from '@/data/types'
+import SegmentDelegationPanel from './SegmentDelegationPanel.vue'
 
 const props = defineProps<{ moduleKey: string }>()
 const meta = moduleMeta(props.moduleKey)
@@ -154,7 +157,14 @@ async function submitCreate() {
   creating.value = true
   errorMessage.value = ''
   try {
-    const result = await createEntry(meta.key, createValues.value)
+    const currentOperator = localStorage.getItem('sk-current-operator') || '甲'
+    const values = {
+      ...createValues.value,
+      operator: currentOperator,
+      操作员: currentOperator,
+      ...(meta.key === 'dim_entry' ? { 建档人员: currentOperator } : {}),
+    }
+    const result = await createEntry(meta.key, values)
     if (!result.ok) throw new Error(result.message)
     showCreate.value = false
     await reload()
